@@ -229,7 +229,7 @@ $('catalogReset').addEventListener('click',()=>{catalogArea='All categories';$('
 
 
 function nextRank(s){return s.available?D.ranks[highest(s)+1]:null;}
-function priorityRanks(patrol){
+function soloPriorityRanks(patrol){
  const people=D.scouts.filter(s=>s.patrol===patrol&&s.available);
  return MODULES.filter(m=>!m.badge&&m.kind!=='program').map(m=>{
  const targets=people.map(s=>{const rank=nextRank(s),codes=(m.refs[rank]||[]).filter(c=>status(s,rank,c).type==='missing');return {s,rank,codes,total:rank?missing(s,rank).length:0};}).filter(t=>t.codes.length);
@@ -237,7 +237,7 @@ function priorityRanks(patrol){
  return {m,targets,early,score:targets.reduce((n,t)=>n+10+t.codes.length+30*t.codes.length/Math.max(1,t.total),0)};
  }).filter(x=>x.targets.length).sort((a,b)=>b.score-a.score||a.m.title.localeCompare(b.m.title));
 }
-function priorityBadges(patrol){
+function soloPriorityBadges(patrol){
  const choices=new Map();
  for(const s of D.scouts.filter(s=>s.patrol===patrol))for(const group of MB_SLOTS){
  if(group.some(b=>badgeState(s,b).status==='complete'))continue;
@@ -246,12 +246,20 @@ function priorityBadges(patrol){
  }
  return [...choices].map(([badge,people])=>({m:MODULES.find(m=>m.badge===badge),people,score:people.reduce((n,s)=>n+(badgeState(s,badge).status==='started'?100+(badgeState(s,badge).percent||0):1),0)})).filter(x=>x.m).sort((a,b)=>b.score-a.score||a.m.title.localeCompare(b.m.title));
 }
+function sharedPatrolOrder(patrol,build){
+ const own=build(patrol);if(!['Fluffy','Gladiators'].includes(patrol))return own;
+ const other=build(patrol==='Fluffy'?'Gladiators':'Fluffy');
+ const shared=own.filter(x=>other.some(y=>y.m.id===x.m.id)).map(x=>({...x,joint:true,combined:x.score+other.find(y=>y.m.id===x.m.id).score})).sort((a,b)=>b.combined-a.combined||a.m.title.localeCompare(b.m.title));
+ return [...shared,...own.filter(x=>!shared.some(y=>y.m.id===x.m.id))];
+}
+function priorityRanks(patrol){return sharedPatrolOrder(patrol,soloPriorityRanks);}
+function priorityBadges(patrol){return sharedPatrolOrder(patrol,soloPriorityBadges);}
 function priorityLink(m,patrol){return '#'+new URLSearchParams({module:m.id,patrol,from:'priorities'});}
 function renderPriorities(){
- $('patrolPriorities').innerHTML='<div class="eyebrow">TROOP 154 · ASSIGNED PATROL MODULES</div><h1 id="priorityTitle">Patrol advancement plan</h1><p>Default priorities based on records dated 11 November 2026. Work down each patrol’s rank and merit badge queues in parallel. Assign the named Scouts to each lesson; assess and record their work individually.</p><p class="muted">Rank order favors shared next-rank gaps and Scouts with fewer remaining entries. Badge order favors existing partials, then shared needs. Percent complete is not an estimate of time remaining. OR-group selections are provisional: retain an existing partial first, otherwise confirm the Scout’s choice and access to activities. Unknown records are not treated as completed or missing.</p><div class="priority-grid">'+['Fluffy','Gladiators','Barbarians'].map(patrol=>{
+ $('patrolPriorities').innerHTML='<div class="eyebrow">TROOP 154 · ASSIGNED PATROL MODULES</div><h1 id="priorityTitle">Patrol advancement plan</h1><p>Default priorities based on records dated 11 November 2026. Fluffy and Gladiators share the same lesson order wherever both patrols have recorded needs; teach these together, with separate individual assessments. Work down the rank and merit badge queues in parallel. Assign the named Scouts to each lesson; assess and record their work individually.</p><p class="muted">Joint lessons come first for Fluffy and Gladiators; patrol-only catch-up follows. Rank order favors shared next-rank gaps and Scouts with fewer remaining entries. Badge order favors existing partials, then shared needs. Percent complete is not an estimate of time remaining. OR-group selections are provisional: retain an existing partial first, otherwise confirm the Scout’s choice and access to activities. Unknown records are not treated as completed or missing.</p><div class="priority-grid">'+['Fluffy','Gladiators','Barbarians'].map(patrol=>{
  const ranks=priorityRanks(patrol),badges=priorityBadges(patrol),people=D.scouts.filter(s=>s.patrol===patrol);
- const rankRows=ranks.map((x,i)=>`<li><a href="${priorityLink(x.m,patrol)}"><b>${escapeHTML(x.m.title)}</b></a>${x.early?' <span class="badge">Start early / follow up</span>':''}${x.m.id==='review'?'<small>Prepare individual reviews now; hold each conference or board when the Scout is eligible. This is not a group sign-off.</small>':''}<small>${x.targets.map(t=>escapeHTML(t.s.short)+' — '+escapeHTML(t.rank)+' '+t.codes.join(', ')).join('<br>')}</small></li>`);
- const badgeRows=badges.map(x=>`<li><a href="${priorityLink(x.m,patrol)}"><b>${escapeHTML(x.m.title)}</b></a><small>${x.people.map(s=>escapeHTML(s.short)+' — '+(badgeState(s,x.m.badge).status==='started'?(badgeState(s,x.m.badge).percent||0)+'% recorded':'no progress recorded')).join('<br>')}</small></li>`);
+ const rankRows=ranks.map((x,i)=>`<li><a href="${priorityLink(x.m,patrol)}"><b>${escapeHTML(x.m.title)}</b></a>${x.joint?' <span class="badge">Fluffy + Gladiators together</span>':''}${x.early?' <span class="badge">Start early / follow up</span>':''}${x.m.id==='review'?'<small>Prepare individual reviews now; hold each conference or board when the Scout is eligible. This is not a group sign-off.</small>':''}<small>${x.targets.map(t=>escapeHTML(t.s.short)+' — '+escapeHTML(t.rank)+' '+t.codes.join(', ')).join('<br>')}</small></li>`);
+ const badgeRows=badges.map(x=>`<li><a href="${priorityLink(x.m,patrol)}"><b>${escapeHTML(x.m.title)}</b></a>${x.joint?' <span class="badge">Fluffy + Gladiators together</span>':''}<small>${x.people.map(s=>escapeHTML(s.short)+' — '+(badgeState(s,x.m.badge).status==='started'?(badgeState(s,x.m.badge).percent||0)+'% recorded':'no progress recorded')).join('<br>')}</small></li>`);
  const partials=people.flatMap(s=>Object.entries(MB_RECORDS[s.name]||{}).filter(([b,v])=>v.status==='started'&&!badges.some(x=>x.m.badge===b&&x.people.includes(s))).map(([b,v])=>({s,b,v}))).sort((a,b)=>(b.v.percent||0)-(a.v.percent||0));
  return `<article class="panel"><h3>${patrol}</h3><p>${people.map(s=>escapeHTML(s.short)+' → '+escapeHTML(nextRank(s)||'verify advancement record')).join(' · ')}</p><h4>Rank modules · ${ranks.length} assigned</h4><ol>${rankRows.slice(0,4).join('')||'<li>No mapped next-rank lesson gaps recorded.</li>'}</ol>${ranks.length>4?'<details><summary>Remaining rank queue ('+(ranks.length-4)+')</summary><ol start="5">'+rankRows.slice(4).join('')+'</ol></details>':''}<h4>Merit badge modules · ${badges.length} assigned</h4><ol>${badgeRows.slice(0,3).join('')}</ol><details><summary>Remaining badge queue / early starts</summary><p>Arrange counselor reviews for partials first. Start applicable tracking, home projects and activity logs alongside lessons; confirm prerequisites, durations and individual requirements with the counselor.</p><ol start="4">${badgeRows.slice(3).join('')}</ol></details>${partials.length?'<details open><summary>Other partial badges to finish individually</summary><ul>'+partials.map(x=>'<li>'+escapeHTML(x.s.short)+' — '+escapeHTML(x.b)+' ('+x.v.percent+'% recorded): review remaining work with the counselor.</li>').join('')+'</ul></details>':''}<details><summary>Individual rank follow-up & unmapped gaps</summary>${people.map(s=>{const r=nextRank(s);if(!r)return '<p>'+escapeHTML(s.short)+': verify rank records before assigning gaps.</p>';const unmapped=missing(s,r).filter(([c])=>!ranks.some(x=>x.targets.some(t=>t.s===s&&t.codes.includes(c))));return '<p><b>'+escapeHTML(s.short)+' · '+r+'</b>: '+missing(s,r).length+' undated entries.'+(unmapped.length?'</p><ul>'+unmapped.map(([c,t])=>'<li>'+c+' '+escapeHTML(t)+'</li>').join('')+'</ul>':' Confirm any remaining conference, review and award-record steps individually.</p>');}).join('')}</details></article>`;
  }).join('')+'</div><p class="muted">Assignments are planning recommendations, not sign-offs. Modules may support multiple requirements, but attendance does not complete them. Your existing calendar is retained; use Modules & Calendar to schedule these priorities.</p>';
